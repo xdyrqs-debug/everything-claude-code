@@ -77,7 +77,8 @@
       const defs = svg('defs');
       links.append(defs);
       const itemLayer = h('div');
-      world.append(itemLayer, links);
+      const cursorLayer = h('div.cursor-layer');
+      world.append(itemLayer, links, cursorLayer);
       const canvas = h('div.canvas', world);
       const marquee = h('div.marquee.hidden');
       canvas.append(marquee);
@@ -96,7 +97,9 @@
         h('button.tool', { title: 'Показать всё (Shift+1)', onclick: fitAll }, GB.icon('fit'))
       );
       const hint = h('div.hint.glass.hidden');
-      const wrap = h('div.canvas-wrap.glass', canvas, toolbar, topbar, zoombar, hint);
+      const presence = h('div.floating-bar.top-right.glass.hidden');
+      const chatDock = h('div.board-chat.glass.hidden');
+      const wrap = h('div.canvas-wrap.glass', canvas, toolbar, topbar, zoombar, hint, presence, chatDock);
       root.append(wrap);
 
       const centerClient = () => {
@@ -111,11 +114,109 @@
         state: board().viewport || {},
         onChange: (v) => {
           zoomLabel.textContent = Math.round(v.zoom * 100) + '%';
+          cursorLayer.style.setProperty('--inv-zoom', 1 / v.zoom);
           saveViewport(v);
         },
         canPan: () => tool === 'hand',
       });
       zoomLabel.textContent = Math.round(vp.zoom * 100) + '%';
+      cursorLayer.style.setProperty('--inv-zoom', 1 / vp.zoom);
+
+      // ---------- co-op: presence, live cursors, chat ----------
+      const sharedRoom = () => GB.coop && GB.coop.roomForBoard(boardId);
+      const cursors = new Map(); // peer -> { el, timer }
+      let chatPanel = null;
+      let lastCursorSent = 0;
+
+      function clearCursors() {
+        for (const c of cursors.values()) {
+          clearTimeout(c.timer);
+          c.el.remove();
+        }
+        cursors.clear();
+      }
+
+      function renderPresence() {
+        const room = sharedRoom();
+        presence.classList.toggle('hidden', !room);
+        if (!room) {
+          chatDock.classList.add('hidden');
+          if (chatPanel) chatPanel.destroy();
+          chatPanel = null;
+          return;
+        }
+        const live = GB.coop.live(room.id);
+        const me = GB.store.profile || {};
+        const unread = GB.coop.unread[room.id] || 0;
+        presence.innerHTML = '';
+        presence.append(
+          h('span.status-dot', { class: live.status, title: live.status }),
+          GB.coop.avatar({ name: me.name, color: me.color }, 26),
+          ...live.peers.map((p) => GB.coop.avatar(p, 26)),
+          h('span.sep'),
+          h(
+            'button.tool',
+            {
+              title: 'Чат проекта',
+              class: chatPanel ? 'on' : '',
+              onclick: () => {
+                if (chatPanel) {
+                  chatPanel.destroy();
+                  chatPanel = null;
+                  chatDock.classList.add('hidden');
+                } else {
+                  chatPanel = GB.coop.chatPanel(room.id);
+                  chatDock.innerHTML = '';
+                  chatDock.append(h('div.board-chat-head', h('h3', '💬 ' + room.name)), chatPanel.el);
+                  chatDock.classList.remove('hidden');
+                  chatPanel.focus();
+                }
+                renderPresence();
+              },
+            },
+            '💬',
+            unread && !chatPanel ? h('span.badge-dot.mini', unread) : null
+          )
+        );
+      }
+
+      canvas.addEventListener('pointermove', (e) => {
+        const room = sharedRoom();
+        if (!room) return;
+        const now = performance.now();
+        if (now - lastCursorSent < 40) return;
+        lastCursorSent = now;
+        const p = vp.toWorld(e.clientX, e.clientY);
+        window.glass.coop.cursor(room.id, boardId, p.x, p.y);
+      });
+
+      const offCursor = window.glass.coop.onCursor((c) => {
+        const room = sharedRoom();
+        if (!room || c.room !== room.id) return;
+        if (c.all) return clearCursors();
+        let cur = cursors.get(c.peer);
+        if (c.gone || c.boardId !== boardId) {
+          if (cur) {
+            cur.el.remove();
+            cursors.delete(c.peer);
+          }
+          return;
+        }
+        if (!cur) {
+          const el = h('div.remote-cursor', { style: { '--c': c.color } });
+          el.innerHTML = '<svg viewBox="0 0 24 24" width="22" height="22"><path d="M4 2l16 9-7 2-3 7z" fill="currentColor" stroke="white" stroke-width="1.5" stroke-linejoin="round"/></svg>';
+          el.append(h('span.remote-name', c.name));
+          cursorLayer.append(el);
+          cur = { el, timer: null };
+          cursors.set(c.peer, cur);
+        }
+        cur.el.style.color = c.color;
+        cur.el.querySelector('.remote-name').style.background = c.color;
+        cur.el.style.transform = `translate(${c.x}px, ${c.y}px) scale(var(--inv-zoom, 1))`;
+        cur.el.classList.remove('idle');
+        clearTimeout(cur.timer);
+        cur.timer = setTimeout(() => cur.el.classList.add('idle'), 8000);
+      });
 
       // ---------- toolbars ----------
       function renderToolbar() {
@@ -835,7 +936,7 @@
                   ]);
                 },
               },
-              h('span.ico', '▦'),
+              h('span.ico', b.shared ? '👥' : '▦'),
               b.name,
               h('span.count', b.items.length || '')
             )
@@ -863,6 +964,12 @@
         vp.zoom = v.zoom;
         vp.apply();
         zoomLabel.textContent = Math.round(vp.zoom * 100) + '%';
+        cursorLayer.style.setProperty('--inv-zoom', 1 / vp.zoom);
+        clearCursors();
+        if (chatPanel) chatPanel.destroy();
+        chatPanel = null;
+        chatDock.classList.add('hidden');
+        renderPresence();
         render();
         shell.refreshSidebar();
       }
@@ -923,11 +1030,22 @@
           if (source === 'board') return;
           const b = board();
           if (!b) return switchBoard(boards()[0].id);
+          const editing = editingId && itemById(editingId);
           doc = GB.clone({ items: b.items, connectors: b.connectors });
+          if (editing) {
+            // keep the object the open editor writes into; take everything else from the partner
+            const idx = doc.items.findIndex((i) => i.id === editing.id);
+            if (idx >= 0) doc.items[idx] = editing;
+            return;
+          }
           render();
           shell.refreshSidebar();
         }),
+        GB.coop.on(renderPresence),
+        GB.store.on('coop', renderPresence),
+        offCursor,
       ];
+      renderPresence();
 
       renderToolbar();
       setTool('select');
@@ -950,6 +1068,8 @@
         },
         destroy() {
           offs.forEach((off) => off());
+          if (chatPanel) chatPanel.destroy();
+          clearCursors();
           vp.destroy();
         },
       };

@@ -36,13 +36,24 @@
     },
     "linux": {
       "target": "AppImage",
-      "category": "Office"
+      "category": "Office",
+      "mimeTypes": [
+        "x-scheme-handler/glassboard"
+      ]
     },
     "publish": null,
     "nsis": {
       "oneClick": false,
       "perMachine": false,
       "allowToChangeInstallationDirectory": true
-    }
+    },
+    "protocols": [
+      {
+        "name": "Glassboard invite",
+        "schemes": [
+          "glassboard"
+        ]
+      }
+    ]
   }
 }

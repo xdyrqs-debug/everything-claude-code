@@ -11,6 +11,7 @@
     { id: 'board', label: 'Доска', ico: '▦' },
     { id: 'mindmap', label: 'Mind map', ico: '✺' },
     { id: 'notes', label: 'Записки', ico: '🗒' },
+    { id: 'coop', label: 'Вместе', ico: '👥' },
     { id: 'settings', label: 'Настройки', ico: '⚙' },
   ];
 
@@ -41,6 +42,7 @@
     const counts = {
       tasks: GB.store.get('tasks').filter((t) => t.status !== 'done').length,
       notes: GB.store.get('notes').length,
+      coop: Object.values(GB.coop.unread).reduce((a, b) => a + b, 0) || null,
     };
     for (const item of NAV) {
       nav.append(
@@ -97,6 +99,7 @@
       renderProfile();
       renderThemeButton();
       openView(GB.store.get('ui').view || 'tasks');
+      GB.coop.refresh();
     });
   }
 
@@ -132,6 +135,10 @@
 
   window.glass.auth.onLocked(onLocked);
   window.glass.mcp.onActivity((text) => GB.store.data && GB.toast('✦ ' + text, 3200));
+  GB.coop.on(() => GB.store.data && renderNav());
+  window.glass.coop.onInviteLink((link) => {
+    if (GB.store.data) openView('coop', { invite: link });
+  });
 
   // keep shell in sync with data
   const onData = () => {
@@ -153,7 +160,7 @@
       $('lock-btn').click();
       return;
     }
-    if (mod && !e.shiftKey && !e.altKey && /^[1-5]$/.test(e.key)) {
+    if (mod && !e.shiftKey && !e.altKey && /^[1-6]$/.test(e.key)) {
       e.preventDefault();
       openView(NAV[Number(e.key) - 1].id);
       return;

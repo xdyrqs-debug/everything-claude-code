@@ -6,6 +6,7 @@ const { app, BrowserWindow, ipcMain, dialog, nativeTheme, powerMonitor, screen, 
 const { Vault, BadPasswordError } = require('./vault');
 const { defaultData, migrate } = require('./defaults');
 const { McpServer } = require('./mcp');
+const { CoopManager } = require('./coop');
 
 const isMac = process.platform === 'darwin';
 const isWin = process.platform === 'win32';
@@ -17,6 +18,8 @@ if (process.platform === 'linux') app.commandLine.appendSwitch('enable-transpare
 
 let vault;
 let mcp;
+let coop;
+let pendingInvite = null;
 let mainWindow = null;
 const noteWindows = new Map(); // noteId -> BrowserWindow
 let session = null; // { id, key, salt, kdf, data, profile }
@@ -219,6 +222,7 @@ function setState(key, value, sender) {
   session.data[key] = value;
   scheduleSave();
   broadcast('state:changed', { key, value }, sender);
+  if (coop) coop.onLocalChange(key);
   if (key === 'settings') {
     writeUiPrefs(value);
     for (const win of allWindows()) applyNativeBlur(win, value.nativeBlur);
@@ -254,15 +258,44 @@ function startSession(s, data, profile) {
   writeUiPrefs(session.data.settings);
   for (const win of allWindows()) applyNativeBlur(win, session.data.settings.nativeBlur);
   for (const note of session.data.notes) if (note.open) openNoteWindow(note.id);
+  coop.start();
+  if (pendingInvite) deliverInvite();
   return { profile, data: session.data };
 }
 
 function lock() {
   if (!session) return;
+  coop.stop();
   flush();
   closeAllNotes();
   session = null;
   if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('auth:locked');
+}
+
+// ---------- co-op invite links (glassboard://join/...) ----------
+
+function inviteFromArgv(argv) {
+  return (argv || []).find((a) => typeof a === 'string' && a.startsWith('glassboard://join/')) || null;
+}
+
+function deliverInvite() {
+  if (!pendingInvite || !session || !mainWindow || mainWindow.isDestroyed()) return;
+  const link = pendingInvite;
+  pendingInvite = null;
+  const send = () => mainWindow.webContents.send('coop:invite-link', link);
+  if (mainWindow.webContents.isLoading()) mainWindow.webContents.once('did-finish-load', send);
+  else setTimeout(send, 300);
+}
+
+function receiveInvite(link) {
+  if (!link) return;
+  pendingInvite = link;
+  if (mainWindow) {
+    if (mainWindow.isMinimized()) mainWindow.restore();
+    mainWindow.show();
+    mainWindow.focus();
+  }
+  deliverInvite();
 }
 
 function windowFrom(event) {
@@ -343,6 +376,7 @@ function registerIpc() {
   handle('auth:delete-profile', async (_e, { password }) => {
     const s = requireSession();
     await vault.deleteProfile(s.id, password);
+    coop.stop();
     clearTimeout(saveTimer);
     closeAllNotes();
     session = null;
@@ -386,6 +420,39 @@ function registerIpc() {
     }
   });
 
+  // ---- co-op ----
+  handle('coop:status', () => {
+    requireSession();
+    return coop.status();
+  });
+  handle('coop:create', async (_e, opts) => {
+    requireSession();
+    const res = await coop.create(opts || {});
+    coop.emitStatus();
+    return res;
+  });
+  handle('coop:join', (_e, invite) => {
+    requireSession();
+    const res = coop.join(invite);
+    coop.emitStatus();
+    return res;
+  });
+  handle('coop:invite', (_e, roomId) => {
+    requireSession();
+    return coop.invite(roomId);
+  });
+  handle('coop:leave', (_e, roomId, opts) => {
+    requireSession();
+    return coop.leave(roomId, opts || {});
+  });
+  handle('coop:chat', (_e, roomId, text) => {
+    requireSession();
+    return coop.chat(roomId, text);
+  });
+  ipcMain.on('coop:cursor', (_e, roomId, boardId, x, y) => {
+    if (session && coop) coop.cursor(roomId, boardId, x, y);
+  });
+
   // ---- Claude / MCP ----
   handle('mcp:status', () => mcp.status());
   handle('mcp:update', (_e, patch) =>
@@ -422,8 +489,10 @@ function registerIpc() {
       throw new Error('Файл не похож на экспорт Glassboard');
     }
     closeAllNotes();
+    coop.stop();
     s.data = migrate(parsed);
     flush();
+    coop.start();
     for (const note of s.data.notes) if (note.open) openNoteWindow(note.id);
     return s.data;
   });
@@ -450,7 +519,14 @@ const gotLock = app.requestSingleInstanceLock();
 if (!gotLock) {
   app.quit();
 } else {
-  app.on('second-instance', () => {
+  app.on('open-url', (event, url) => {
+    event.preventDefault();
+    receiveInvite(url);
+  });
+  pendingInvite = inviteFromArgv(process.argv);
+
+  app.on('second-instance', (_e, argv) => {
+    receiveInvite(inviteFromArgv(argv));
     if (mainWindow) {
       if (mainWindow.isMinimized()) mainWindow.restore();
       mainWindow.show();
@@ -476,6 +552,31 @@ if (!gotLock) {
       },
     });
     if (mcp.config.enabled) mcp.start();
+    coop = new CoopManager({
+      getSession: () => session,
+      pushState: (key) => {
+        if (!session) return;
+        scheduleSave();
+        broadcast('state:changed', { key, value: session.data[key] }, null);
+        if (key === 'notes') syncNoteWindows();
+      },
+      persist: (broadcastRooms) => {
+        if (!session) return;
+        scheduleSave();
+        if (broadcastRooms) broadcast('state:changed', { key: 'coop', value: session.data.coop }, null);
+      },
+      emit: (channel, payload) => {
+        if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send(channel, payload);
+      },
+      notify: (text) => {
+        if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('mcp:activity', text);
+      },
+    });
+    if (process.defaultApp) {
+      if (process.argv.length >= 2) app.setAsDefaultProtocolClient('glassboard', process.execPath, [path.resolve(process.argv[1])]);
+    } else {
+      app.setAsDefaultProtocolClient('glassboard');
+    }
     registerIpc();
     createMainWindow();
     startAutoLock();

@@ -81,6 +81,7 @@ function defaultData(name = '') {
       },
     ],
     ui: { view: 'tasks', taskLayout: 'kanban', projectId: 'all', boardId: null, mindmapId: null },
+    coop: { rooms: [] },
   };
 }
 
@@ -95,6 +96,7 @@ function migrate(data) {
     if (!Array.isArray(out[key])) out[key] = base[key];
   }
   if (!out.projects.some((p) => p.id === 'inbox')) out.projects.unshift(base.projects[0]);
+  if (!out.coop || !Array.isArray(out.coop.rooms)) out.coop = { rooms: [] };
   return out;
 }
 
