@@ -187,25 +187,29 @@
 
   async function createDialog() {
     const name = h('input.input', { placeholder: 'Название проекта', value: '' });
-    let mode = 'local';
+    let mode = 'public';
     const relay = h('input.input', { placeholder: 'wss://relay.example.com', value: localStorage.getItem('glassboard:relay') || '' });
     const relayRow = h('div.field.hidden', h('label', 'Адрес сервера связи'), relay);
     const hint = h('div.muted', { style: { fontSize: '12px' } });
+    const HINTS = {
+      public:
+        'Работает через интернет без настройки: партнёр может быть в любой стране. Данные идут через бесплатные публичные серверы и зашифрованы — серверы видят только шифр. Проект доступен, даже когда вас нет в сети.',
+      local: 'Сервер связи запустится на этом компьютере. Подключатся только партнёры из той же сети (Wi-Fi, офис), пока ваше приложение открыто.',
+      custom: 'Свой сервер связи (relay) — например, развёрнутый из relay.Dockerfile. Самый надёжный вариант для постоянной команды.',
+    };
     const setMode = (m) => {
       mode = m;
       relayRow.classList.toggle('hidden', m !== 'custom');
-      hint.textContent =
-        m === 'local'
-          ? 'Сервер связи запустится на этом компьютере. Партнёр в той же сети (Wi-Fi) подключится сразу; для интернета откройте порт или используйте туннель — см. README.'
-          : 'Свой сервер связи (relay) — доступен из интернета. Его можно развернуть из файла relay.Dockerfile.';
+      hint.textContent = HINTS[m];
       seg.querySelectorAll('button').forEach((b) => b.classList.toggle('on', b.dataset.m === m));
     };
     const seg = h(
       'div.segmented',
-      h('button', { type: 'button', dataset: { m: 'local' }, onclick: () => setMode('local') }, 'Этот компьютер'),
+      h('button', { type: 'button', dataset: { m: 'public' }, onclick: () => setMode('public') }, 'Интернет (авто)'),
+      h('button', { type: 'button', dataset: { m: 'local' }, onclick: () => setMode('local') }, 'Локальная сеть'),
       h('button', { type: 'button', dataset: { m: 'custom' }, onclick: () => setMode('custom') }, 'Свой сервер')
     );
-    setMode('local');
+    setMode('public');
     const res = await modal(
       'Новый совместный проект',
       h(
@@ -217,7 +221,7 @@
         relayRow,
         hint
       ),
-      { ok: 'Создать', submit: () => ({ name: name.value.trim(), relay: mode === 'custom' ? relay.value.trim() : '' }) }
+      { ok: 'Создать', submit: () => ({ name: name.value.trim(), relay: mode === 'custom' ? relay.value.trim() : mode === 'public' ? 'public' : 'local' }) }
     );
     if (!res) return null;
     if (res.relay) localStorage.setItem('glassboard:relay', res.relay);
@@ -345,6 +349,7 @@
                 { style: { marginTop: '6px' } },
                 h('span.chip', h('span.status-dot', { class: live.status }), statusLabel(live)),
                 h('span.chip', room.role === 'host' ? 'вы создатель' : 'вы участник'),
+                h('span.chip', room.relay === 'public' ? '🌍 интернет' : room.localRelay ? '🏠 локальная сеть' : '🛰 свой сервер'),
                 live.error && live.status !== 'online' ? h('span.chip.overdue', live.error) : null,
                 !live.ready && room.role === 'guest' ? h('span.chip.today', 'ждём партнёра в сети, чтобы получить данные') : null
               )

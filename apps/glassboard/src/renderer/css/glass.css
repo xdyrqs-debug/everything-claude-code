@@ -1868,3 +1868,14 @@ input[type='color']::-webkit-color-swatch {
   font-weight: 600;
   white-space: nowrap;
 }
+
+.segmented button {
+  white-space: nowrap;
+}
+.modal .segmented {
+  display: flex;
+}
+.modal .segmented button {
+  flex: 1;
+  padding: 0 8px;
+}

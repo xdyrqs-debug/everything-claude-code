@@ -18,6 +18,7 @@
 const crypto = require('crypto');
 const os = require('os');
 const { createRelay } = require('../coop/relay');
+const { MqttSocket } = require('../coop/mqtt');
 
 const LOCAL_RELAY_PORT = 47900;
 const STALE_WINDOW_MS = 3000;
@@ -60,7 +61,7 @@ function decodeInvite(text) {
   } catch {
     throw new Error('Ссылка повреждена');
   }
-  if (!inv.r || !inv.i || !inv.k || !/^wss?:\/\//.test(inv.r)) throw new Error('Ссылка повреждена');
+  if (!inv.r || !inv.i || !inv.k || !(inv.r === 'public' || /^wss?:\/\//.test(inv.r))) throw new Error('Ссылка повреждена');
   return { relay: inv.r, id: inv.i, key: inv.k, name: inv.n || 'Совместный проект' };
 }
 
@@ -194,7 +195,7 @@ class Room {
     this.mgr.emitStatus();
     let ws;
     try {
-      ws = new this.mgr.WebSocket(this.cfg.relay);
+      ws = this.mgr.openSocket(this.cfg.relay, this);
     } catch (err) {
       this.error = err.message;
       return this.scheduleReconnect();
@@ -215,7 +216,7 @@ class Room {
       this.onRelay(msg);
     };
     ws.onerror = () => {
-      this.error = 'Нет связи с сервером ' + this.cfg.relay;
+      this.error = this.cfg.relay === 'public' ? 'Нет связи с интернет-сервером, пробуем другой…' : 'Нет связи с сервером ' + this.cfg.relay;
     };
     ws.onclose = () => {
       if (this.ws !== ws) return;
@@ -483,6 +484,14 @@ class CoopManager {
     return this.ctx.getSession().data;
   }
 
+  openSocket(relay, room) {
+    if (relay === 'public') {
+      const brokers = this.ctx.publicBrokers || (process.env.GLASSBOARD_PUBLIC_BROKERS || '').split(',').filter(Boolean);
+      return new MqttSocket({ WebSocket: this.WebSocket, brokers, room, roomId: room.cfg.id });
+    }
+    return new this.WebSocket(relay);
+  }
+
   profile() {
     return this.ctx.getSession().profile || { name: 'Гость', color: '#8e8e93' };
   }
@@ -579,13 +588,16 @@ class CoopManager {
     const title = String(name || '').trim() || 'Совместный проект';
     let relayUrl = String(relay || '').trim();
     let localRelay = false;
-    if (!relayUrl) {
+    if (relayUrl === 'local') relayUrl = '';
+    if (relayUrl === 'public') {
+      // free public MQTT brokers: works across the internet with no setup
+    } else if (!relayUrl) {
       const port = await this.ensureLocalRelay();
       const ip = lanAddresses()[0] || '127.0.0.1';
       relayUrl = `ws://${ip}:${port}`;
       localRelay = true;
     }
-    if (!/^wss?:\/\/[^\s]+$/.test(relayUrl)) throw new Error('Адрес сервера должен начинаться с ws:// или wss://');
+    if (relayUrl !== 'public' && !/^wss?:\/\/[^\s]+$/.test(relayUrl)) throw new Error('Адрес сервера должен начинаться с ws:// или wss://');
 
     const id = b64url(crypto.randomBytes(16));
     const projectId = 'sp' + b64url(crypto.randomBytes(6));
@@ -663,7 +675,12 @@ class CoopManager {
 
   cursor(roomId, boardId, x, y) {
     const room = this.rooms.get(roomId);
-    if (room) room.send({ type: 'cursor', boardId, x: Math.round(x), y: Math.round(y) });
+    if (!room) return;
+    // public brokers are shared infrastructure: keep cursor traffic modest
+    const now = Date.now();
+    if (room.cfg.relay === 'public' && now - (room.lastCursor || 0) < 90) return;
+    room.lastCursor = now;
+    room.send({ type: 'cursor', boardId, x: Math.round(x), y: Math.round(y) });
   }
 
   onLocalChange(key) {
