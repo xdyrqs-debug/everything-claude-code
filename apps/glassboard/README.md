@@ -87,3 +87,14 @@ src/
     js/views/         экраны: вход, задачи, доска, mind map, записки, настройки
 test/vault.test.js    тесты хранилища
 ```
+
+## Готовые сборки
+
+GitHub Actions (`.github/workflows/glassboard-build.yml`) собирает приложение под macOS (`.dmg`),
+Windows (портативный `.exe` и `.zip`) и Linux (`.AppImage`) при каждом изменении в `apps/glassboard`.
+Файлы лежат на вкладке **Actions → Glassboard build → Artifacts**. Запустить сборку вручную — кнопка **Run workflow**.
+
+Сборки не подписаны сертификатом разработчика:
+- **macOS**: при первом запуске нажмите на приложение правой кнопкой → «Открыть» → «Открыть».
+- **Windows**: SmartScreen → «Подробнее» → «Выполнить в любом случае».
+- **Linux**: `chmod +x Glassboard-*.AppImage && ./Glassboard-*.AppImage`.

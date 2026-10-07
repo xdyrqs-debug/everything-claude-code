@@ -22,15 +22,22 @@
       "package.json"
     ],
     "mac": {
-      "target": "dmg",
+      "target": [
+        "dmg",
+        "zip"
+      ],
       "category": "public.app-category.productivity"
     },
     "win": {
-      "target": "nsis"
+      "target": [
+        "portable",
+        "zip"
+      ]
     },
     "linux": {
       "target": "AppImage",
       "category": "Office"
-    }
+    },
+    "publish": null
   }
 }
