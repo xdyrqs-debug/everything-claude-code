@@ -168,7 +168,10 @@ test('HTTP transport enforces token and origin', async () => {
     assert.equal(cfg.token, st.token);
     assert.ok(cfg.tools.length > 5);
     assert.ok(fs.existsSync(path.join(dir, 'mcp-bridge.js')));
-    assert.equal(fs.statSync(path.join(dir, 'mcp.json')).mode & 0o077, 0, 'config is private');
+    // POSIX permissions only; on Windows %APPDATA% is already per-user.
+    if (process.platform !== 'win32') {
+      assert.equal(fs.statSync(path.join(dir, 'mcp.json')).mode & 0o077, 0, 'config is private');
+    }
   } finally {
     await server.update({ enabled: false });
   }
