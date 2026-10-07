@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="ru">
+  <head>
+    <meta charset="utf-8" />
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'none'; object-src 'none'"
+    />
+    <title>Записка</title>
+    <link rel="stylesheet" href="css/glass.css" />
+    <link rel="stylesheet" href="css/note.css" />
+  </head>
+  <body class="note-window">
+    <div class="window note-surface" id="surface">
+      <header class="note-head drag">
+        <input class="note-title" id="title" placeholder="Заголовок" spellcheck="false" />
+        <button class="nbtn" id="pin" title="Закрепить поверх всех окон"></button>
+        <button class="nbtn" id="style" title="Цвет и прозрачность">🎨</button>
+        <button class="nbtn" id="main" title="Открыть Glassboard">⌂</button>
+        <button class="nbtn" id="close" title="Убрать с экрана">✕</button>
+      </header>
+      <div class="note-body" id="body" contenteditable="true" spellcheck="true"></div>
+      <footer class="note-tools" id="tools">
+        <button data-cmd="h1" title="Заголовок 1">H1</button>
+        <button data-cmd="h2" title="Заголовок 2">H2</button>
+        <button data-cmd="h3" title="Заголовок 3">H3</button>
+        <button data-cmd="p" title="Обычный текст">¶</button>
+        <span class="tsep"></span>
+        <button data-cmd="bold" title="Жирный"><b>B</b></button>
+        <button data-cmd="italic" title="Курсив"><i>I</i></button>
+        <button data-cmd="strikeThrough" title="Зачеркнуть"><s>S</s></button>
+        <span class="tsep"></span>
+        <button data-cmd="todo" title="Чек-лист">☑</button>
+        <button data-cmd="insertUnorderedList" title="Список">•</button>
+      </footer>
+    </div>
+    <div id="locked" class="lock hidden"><div class="glass" style="padding: 18px 22px">🔒 Заблокировано</div></div>
+    <script src="js/util.js"></script>
+    <script src="js/core.js"></script>
+    <script src="js/note.js"></script>
+  </body>
+</html>

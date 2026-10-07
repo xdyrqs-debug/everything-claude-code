@@ -1,0 +1,36 @@
+{
+  "name": "glassboard",
+  "productName": "Glassboard",
+  "version": "1.0.0",
+  "description": "Локальное приложение для структурирования задач: стеклянные окна, закрепляемые записки, mind map и доска в стиле Miro. Данные шифруются паролем.",
+  "main": "src/main/main.js",
+  "private": true,
+  "scripts": {
+    "start": "electron .",
+    "test": "node --test test/*.test.js",
+    "dist": "npx --yes electron-builder"
+  },
+  "license": "MIT",
+  "devDependencies": {
+    "electron": "^44.6.0"
+  },
+  "build": {
+    "appId": "local.glassboard.app",
+    "productName": "Glassboard",
+    "files": [
+      "src/**/*",
+      "package.json"
+    ],
+    "mac": {
+      "target": "dmg",
+      "category": "public.app-category.productivity"
+    },
+    "win": {
+      "target": "nsis"
+    },
+    "linux": {
+      "target": "AppImage",
+      "category": "Office"
+    }
+  }
+}
