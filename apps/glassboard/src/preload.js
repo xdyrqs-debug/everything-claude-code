@@ -51,5 +51,12 @@ contextBridge.exposeInMainWorld('glass', {
     export: () => call('data:export'),
     import: () => call('data:import'),
   },
+  mcp: {
+    status: () => call('mcp:status'),
+    update: (patch) => call('mcp:update', patch),
+    regenerateToken: () => call('mcp:regenerate-token'),
+    onActivity: listen('mcp:activity'),
+  },
+  copy: (text) => call('app:copy', text),
   onSystemTheme: listen('theme:system-changed'),
 });

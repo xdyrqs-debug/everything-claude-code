@@ -2,9 +2,10 @@
 
 const path = require('path');
 const fs = require('fs');
-const { app, BrowserWindow, ipcMain, dialog, nativeTheme, powerMonitor, screen, shell } = require('electron');
+const { app, BrowserWindow, ipcMain, dialog, nativeTheme, powerMonitor, screen, shell, clipboard } = require('electron');
 const { Vault, BadPasswordError } = require('./vault');
 const { defaultData, migrate } = require('./defaults');
+const { McpServer } = require('./mcp');
 
 const isMac = process.platform === 'darwin';
 const isWin = process.platform === 'win32';
@@ -15,6 +16,7 @@ const STATE_KEYS = new Set(['settings', 'projects', 'tasks', 'notes', 'boards', 
 if (process.platform === 'linux') app.commandLine.appendSwitch('enable-transparent-visuals');
 
 let vault;
+let mcp;
 let mainWindow = null;
 const noteWindows = new Map(); // noteId -> BrowserWindow
 let session = null; // { id, key, salt, kdf, data, profile }
@@ -384,6 +386,17 @@ function registerIpc() {
     }
   });
 
+  // ---- Claude / MCP ----
+  handle('mcp:status', () => mcp.status());
+  handle('mcp:update', (_e, patch) =>
+    mcp.update({
+      ...(typeof patch.enabled === 'boolean' ? { enabled: patch.enabled } : {}),
+      ...(typeof patch.allowWrite === 'boolean' ? { allowWrite: patch.allowWrite } : {}),
+    })
+  );
+  handle('mcp:regenerate-token', () => mcp.regenerateToken());
+  handle('app:copy', (_e, text) => clipboard.writeText(String(text)));
+
   handle('data:export', async (e) => {
     const s = requireSession();
     const { canceled, filePath } = await dialog.showSaveDialog(windowFrom(e), {
@@ -447,6 +460,22 @@ if (!gotLock) {
 
   app.whenReady().then(() => {
     vault = new Vault(path.join(app.getPath('userData'), 'profiles'));
+    mcp = new McpServer({
+      userData: app.getPath('userData'),
+      version: app.getVersion(),
+      getSession: () => session,
+      setState: (key, value) => setState(key, value, null),
+      openNote: (id) => openNoteWindow(id),
+      closeNote: (id) => {
+        const win = noteWindows.get(id);
+        if (win && !win.isDestroyed()) win.close();
+      },
+      allowWrite: () => mcp.config.allowWrite,
+      notify: (text) => {
+        if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('mcp:activity', text);
+      },
+    });
+    if (mcp.config.enabled) mcp.start();
     registerIpc();
     createMainWindow();
     startAutoLock();

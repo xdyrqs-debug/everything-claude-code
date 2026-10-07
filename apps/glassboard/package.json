@@ -30,7 +30,7 @@
     },
     "win": {
       "target": [
-        "portable",
+        "nsis",
         "zip"
       ]
     },
@@ -38,6 +38,11 @@
       "target": "AppImage",
       "category": "Office"
     },
-    "publish": null
+    "publish": null,
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": true
+    }
   }
 }

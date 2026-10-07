@@ -131,6 +131,7 @@
   });
 
   window.glass.auth.onLocked(onLocked);
+  window.glass.mcp.onActivity((text) => GB.store.data && GB.toast('✦ ' + text, 3200));
 
   // keep shell in sync with data
   const onData = () => {

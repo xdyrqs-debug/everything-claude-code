@@ -368,6 +368,81 @@
         )
       );
 
+      // ---------- Claude (MCP) ----------
+      const claude = h('section.glass', h('h2', 'Подключение Claude (MCP)'));
+      const renderClaude = (st) => {
+        claude.innerHTML = '';
+        const desktopJson = JSON.stringify(st.desktopConfig, null, 2);
+        const copyBtn = (label, text) =>
+          h(
+            'button.btn.small',
+            {
+              onclick: async () => {
+                await window.glass.copy(text);
+                GB.toast('Скопировано');
+              },
+            },
+            label
+          );
+        const code = (text) => h('pre.code-block', text);
+        claude.append(
+          h('h2', 'Подключение Claude (MCP)'),
+          h(
+            'div.muted',
+            { style: { fontSize: '12.5px' } },
+            'Claude сможет смотреть и менять задачи, записки, mind map и доски, пока приложение разблокировано. Сервер слушает только этот компьютер и защищён токеном.'
+          ),
+          row(
+            'Разрешить подключение',
+            st.enabled ? (st.running ? `Работает: ${st.url}` : `Не запущен${st.error ? ': ' + st.error : ''}`) : 'Выключено',
+            toggle(st.enabled, async (v) => renderClaude(await window.glass.mcp.update({ enabled: v })))
+          ),
+          row(
+            'Разрешить изменения',
+            'Выключите, чтобы Claude мог только читать',
+            toggle(st.allowWrite, async (v) => renderClaude(await window.glass.mcp.update({ allowWrite: v })))
+          ),
+          st.enabled
+            ? h(
+                'div',
+                h('h3', { style: { margin: '14px 0 6px' } }, 'Claude Desktop'),
+                h(
+                  'div.muted',
+                  { style: { fontSize: '12.5px' } },
+                  'Настройки Claude → Developer → Edit Config. Вставьте блок в claude_desktop_config.json (внутрь "mcpServers", если он уже есть) и перезапустите Claude.'
+                ),
+                code(desktopJson),
+                h('div.row', { style: { marginTop: '6px' } }, h('div.spacer'), copyBtn('Скопировать конфиг', desktopJson)),
+                h('h3', { style: { margin: '14px 0 6px' } }, 'Claude Code'),
+                h('div.muted', { style: { fontSize: '12.5px' } }, 'Выполните в терминале:'),
+                code(st.codeCommand),
+                h(
+                  'div.row',
+                  { style: { marginTop: '6px' } },
+                  h(
+                    'button.btn.small.ghost',
+                    {
+                      onclick: async () => {
+                        if (!(await GB.confirm('Сменить токен?', 'Подключённые клиенты Claude перестанут работать, пока вы не обновите их конфигурацию.', 'Сменить'))) return;
+                        renderClaude(await window.glass.mcp.regenerateToken());
+                      },
+                    },
+                    'Сменить токен'
+                  ),
+                  h('div.spacer'),
+                  copyBtn('Скопировать команду', st.codeCommand)
+                ),
+                h(
+                  'div.muted',
+                  { style: { fontSize: '12px', marginTop: '10px' } },
+                  'Попробуйте спросить Claude: «Что у меня на сегодня в Glassboard?» или «Разбей проект „Ремонт“ на задачи и закрепи план записку на экране».'
+                )
+              )
+            : null
+        );
+      };
+      window.glass.mcp.status().then(renderClaude);
+
       const shortcuts = h(
         'section.glass',
         h('h2', 'Горячие клавиши'),
@@ -394,7 +469,7 @@
 
       const renderAll = () => GB.shell.go('settings');
 
-      wrap.append(appearance, fonts, notes, security, data, shortcuts);
+      wrap.append(appearance, fonts, claude, notes, security, data, shortcuts);
 
       // Offer installed font names when the platform allows it.
       if (typeof window.queryLocalFonts === 'function') {
